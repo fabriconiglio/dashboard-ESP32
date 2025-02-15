@@ -42,6 +42,7 @@ const DashboardIoT = () => {
   const [historicos, setHistoricos] = useState([]);
   const [conectado, setConectado] = useState(false);
   const [ws, setWs] = useState(null);
+  const [debounceTimer, setDebounceTimer] = useState(null);
 
   const enviarComando = (tipo, valor) => {
     if (!ws) return;
@@ -74,19 +75,36 @@ const DashboardIoT = () => {
       };
   
       wsConnection.onmessage = (event) => {
-        try {
-          const datos = JSON.parse(event.data);
-          setSensores(datos);
-          setHistoricos(prev => [
-            ...prev.slice(-CONFIG.MAX_HISTORICAL), 
-            { 
-              ...datos, 
-              timestamp: new Date().toLocaleTimeString() 
-            }
-          ]);
-        } catch (error) {
-          console.error('Error al procesar datos:', error);
+        if (debounceTimer) {
+          clearTimeout(debounceTimer);
         }
+
+        setDebounceTimer(setTimeout(() => {
+          try {
+            const datos = JSON.parse(event.data);
+            
+            // Actualizar datos actuales
+            setSensores(datos);
+
+            // Actualizar histórico con timestamp
+            const datoConTimestamp = {
+              ...datos,
+              timestamp: new Date().toLocaleTimeString()
+            };
+
+            setHistoricos(prev => {
+              // Si el array está vacío o el último dato es diferente, agregar nuevo dato
+              if (prev.length === 0 || 
+                  JSON.stringify(prev[prev.length - 1]) !== JSON.stringify(datoConTimestamp)) {
+                return [...prev.slice(-CONFIG.MAX_HISTORICAL), datoConTimestamp];
+              }
+              return prev;
+            });
+
+          } catch (error) {
+            console.error('Error al procesar datos:', error);
+          }
+        }, 100));
       };
   
       setWs(wsConnection);
@@ -95,6 +113,7 @@ const DashboardIoT = () => {
       setConectado(false);
     }
   };
+
   const toggleConexion = () => {
     if (conectado) {
       ws?.close();
@@ -119,6 +138,7 @@ const DashboardIoT = () => {
     enviarComando('luces', nuevoEstado);
   };
 
+  // Efecto para limpieza del WebSocket
   useEffect(() => {
     return () => {
       if (ws) {
@@ -126,6 +146,27 @@ const DashboardIoT = () => {
       }
     };
   }, [ws]);
+
+  // Efecto para solicitar datos periódicamente
+  useEffect(() => {
+    let intervalo;
+    
+    if (conectado && ws) {
+      intervalo = setInterval(() => {
+        try {
+          ws.send(JSON.stringify({ tipo: 'getDatos' }));
+        } catch (error) {
+          console.error('Error al solicitar datos:', error);
+        }
+      }, 2000);
+    }
+
+    return () => {
+      if (intervalo) {
+        clearInterval(intervalo);
+      }
+    };
+  }, [conectado, ws]);
 
   return (
     <Container>
@@ -284,15 +325,50 @@ const DashboardIoT = () => {
                 </Typography>
                 <Box sx={{ height: 400 }}>
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={historicos}>
+                    <LineChart 
+                      data={historicos}
+                      margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                    >
                       <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="timestamp" />
+                      <XAxis 
+                        dataKey="timestamp"
+                        interval="preserveEnd"
+                        minTickGap={50}
+                      />
                       <YAxis />
                       <Tooltip />
-                      <Line type="monotone" dataKey="temperatura" stroke="#ef4444" name="Temperatura (°C)" />
-                      <Line type="monotone" dataKey="humedad" stroke="#3b82f6" name="Humedad (%)" />
-                      <Line type="monotone" dataKey="gas" stroke="#6b7280" name="Gas (PPM)" />
-                      <Line type="monotone" dataKey="ultrasonido" stroke="#9333ea" name="Distancia (cm)" />
+                      <Line 
+                        type="monotone" 
+                        dataKey="temperatura" 
+                        stroke="#ef4444" 
+                        name="Temperatura (°C)"
+                        dot={false}
+                        isAnimationActive={false}
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="humedad" 
+                        stroke="#3b82f6" 
+                        name="Humedad (%)"
+                        dot={false}
+                        isAnimationActive={false}
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="gas" 
+                        stroke="#6b7280" 
+                        name="Gas (PPM)"
+                        dot={false}
+                        isAnimationActive={false}
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="ultrasonido" 
+                        stroke="#9333ea" 
+                        name="Distancia (cm)"
+                        dot={false}
+                        isAnimationActive={false}
+                      />
                     </LineChart>
                   </ResponsiveContainer>
                 </Box>
